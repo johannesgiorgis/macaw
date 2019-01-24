@@ -1,10 +1,10 @@
+import asyncio
+import concurrent.futures
+import logging
 import math
 import meetup.api
 import os
-import logging
 import requests
-import asyncio
-import concurrent.futures
 import time
 
 from queue import Queue
@@ -20,7 +20,7 @@ async def main():
     """Does the work of making parallel requests from meetup"""
     def make_request(uri, payload):
         """Attaches a payload to a request"""
-        logger.info("Requesting")
+        logger.debug("Requesting")
         start = time.time()
         response = requests.get(uri, params=payload)
         end = time.time()
@@ -70,7 +70,7 @@ async def main():
 
 if __name__ == "__main__":
     """Main program"""
-    logging.basicConfig(format='%(threadName)10s %(asctime)s %(message)s')
+    logging.basicConfig(format='%(levelname)s %(threadName)10s %(asctime)s %(message)s')
     logger = logging.getLogger('meetup_api_demo')
     logger.setLevel(logging.DEBUG)
 
