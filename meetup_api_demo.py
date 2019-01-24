@@ -1,43 +1,66 @@
 import math
 import meetup.api
 import os
+import logging
+import requests
+import asyncio
+import concurrent.futures
+import time
 
+from queue import Queue
+
+API_KEY = None
 PAGE_SIZE = 200
+GROUP_ID = None
+MAX_WORKERS = 5
+q = Queue()
 
-def print_members_starting_with_page(client, page_number, step=1):
-    """Loops through pages until there are no more"""
-    print(f"Offset: {page_number}, Step: {step}")
-    page_number = page_number
-    keep_going = True
-    retry_count, retry_max = 0, 3
-    while keep_going and retry_count <= retry_max:
-        try:
-            members = client.GetMembers(
-                group_id=group_info.id, order="joined", page=PAGE_SIZE, offset=page_number)
-            if members.__dict__["meta"]["next"] == '':
-                keep_going = False
-            member_list = members.results
-            for i, member in enumerate(member_list):
-                print(
-                    f"Member {PAGE_SIZE * page_number + i}: Name: {member.get('name',''):40}, "
-                    f"Joined: {member.get('joined','')}")
-            retry_count = 0
-            page_number += step
-        except Exception as e:
-            retry_count += 1
-            if retry_count == retry_max:
-                print(f"Failure: {e}")
+
+async def main(page_total):
+    """Does the work of making parallel requests from meetup"""
+    def make_request(uri, payload):
+        """Attaches a payload to a request"""
+        return requests.get(uri, params=payload)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        my_loop = asyncio.get_event_loop()
+        payloads = [
+            {
+                    "offset": page_number,
+                    "format": 'json',
+                    "group_id": '15746682',
+                    "page": PAGE_SIZE,
+                    "key": API_KEY,
+                    "order": 'joined'
+            } for page_number in range(page_total)]
+        futures = [
+            my_loop.run_in_executor(
+                executor,
+                make_request,
+                'https://api.meetup.com/2/members',
+                payload
+            )
+            for payload in payloads
+        ]
+        for response in await asyncio.gather(*futures):
+            logger.info("Processing response")
+            results = response.json().get("results", {})
+            for r in results:
+                q.put(r)
 
 
 if __name__ == "__main__":
     """Main program"""
+    logging.basicConfig(format='%(thread)d %(asctime)s %(message)s')
+    logger = logging.getLogger('meetup_api_demo')
+    logger.setLevel(logging.DEBUG)
 
     # Get the API key from the operating system's environment
     if 'MEETUP_API_KEY' not in os.environ:
         raise AssertionError('MEETUP_API_KEY not found in environment, aborting execution.')
 
     API_KEY = os.environ['MEETUP_API_KEY']
-    print(f"The API_KEY in the environment is {API_KEY}")
+    logger.warning(f"API_KEY loaded from environment")
 
     client = meetup.api.Client(API_KEY)
 
@@ -50,12 +73,17 @@ if __name__ == "__main__":
         print(f"Key: {key}, Value: {group_info.__dict__[key]}")
 
     total_pages = math.ceil(group_info.members / float(PAGE_SIZE))
-    print(f"There are {group_info.members} members in this group and {total_pages} total pages.")
-    print(total_pages)
+    logger.warning(f"There are {group_info.members} members in this group and {total_pages} total pages.")
 
-    # NOTE: This is a candidate for asynchronous i/o instead of a single synchronous loop
+    # Get all of the results asynchronously
+    loop = asyncio.get_event_loop()
+    start = time.time()
+    loop.run_until_complete(main(total_pages))
+    end = time.time()
 
-    # print the last pages
-    print_members_starting_with_page(client, total_pages - 1)
-
+    c = 0
+    while not q.empty():
+        logger.info(f"c: {c}, {q.get()}")
+        c += 1
+    logger.warning(f"Total Time taken: {end - start:3.2f} seconds")
 
