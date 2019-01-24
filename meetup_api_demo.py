@@ -12,16 +12,35 @@ from queue import Queue
 API_KEY = None
 PAGE_SIZE = 200
 GROUP_ID = None
-MAX_WORKERS = 5
+MAX_WORKERS = 10
 q = Queue()
 
 
-async def main(page_total):
+async def main():
     """Does the work of making parallel requests from meetup"""
     def make_request(uri, payload):
         """Attaches a payload to a request"""
-        return requests.get(uri, params=payload)
+        logger.info("Requesting")
+        start = time.time()
+        response = requests.get(uri, params=payload)
+        end = time.time()
+        logger.info(f"Elapsed time: {end - start} seconds.")
+        return response
 
+    def get_page_total(url):
+        """get total number of pages"""
+        group_info = client.GetGroup({'urlname': url})
+        keys = list(group_info.__dict__.keys())
+
+        # Display group information
+        # for key in keys:
+        #    print(f"Key: {key}, Value: {group_info.__dict__[key]}")
+
+        total_pages = math.ceil(group_info.members / float(PAGE_SIZE))
+        logger.info(f"There are {group_info.members} members in this group and {total_pages} total pages.")
+        return total_pages
+
+    page_total = get_page_total('svaibd')  # This is the Sunnyvale AI Frontiers forum at https://www.meetup.com/svaibd/
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         my_loop = asyncio.get_event_loop()
         payloads = [
@@ -51,7 +70,7 @@ async def main(page_total):
 
 if __name__ == "__main__":
     """Main program"""
-    logging.basicConfig(format='%(thread)d %(asctime)s %(message)s')
+    logging.basicConfig(format='%(threadName)10s %(asctime)s %(message)s')
     logger = logging.getLogger('meetup_api_demo')
     logger.setLevel(logging.DEBUG)
 
@@ -64,21 +83,10 @@ if __name__ == "__main__":
 
     client = meetup.api.Client(API_KEY)
 
-    url = 'svaibd'  # This is the Sunnyvale AI Frontiers forum at https://www.meetup.com/svaibd/
-    group_info = client.GetGroup({'urlname': 'svaibd'})
-    keys = list(group_info.__dict__.keys())
-
-    # Display group information
-    for key in keys:
-        print(f"Key: {key}, Value: {group_info.__dict__[key]}")
-
-    total_pages = math.ceil(group_info.members / float(PAGE_SIZE))
-    logger.warning(f"There are {group_info.members} members in this group and {total_pages} total pages.")
-
     # Get all of the results asynchronously
     loop = asyncio.get_event_loop()
     start = time.time()
-    loop.run_until_complete(main(total_pages))
+    loop.run_until_complete(main())
     end = time.time()
 
     c = 0
